@@ -3,12 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gesture Christmas Tree (CN Mirror)</title>
+    <title>Xmas Tree (Mouse Interaction)</title>
     <style>
-        /* --- 样式部分保持不变 --- */
         body { margin: 0; overflow: hidden; background-color: #020502; font-family: 'Helvetica Neue', Arial, sans-serif; user-select: none; }
-        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
-        #input-video { position: absolute; bottom: 10px; right: 10px; width: 160px; height: 120px; z-index: 2; border: 2px solid #D4AF37; border-radius: 8px; opacity: 0.5; transform: scaleX(-1); display: block; }
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; cursor: pointer; }
         #ui-layer { position: absolute; top: 20px; left: 20px; z-index: 10; color: #D4AF37; pointer-events: none; }
         h1 { margin: 0; font-weight: 300; letter-spacing: 2px; text-transform: uppercase; text-shadow: 0 0 10px rgba(212, 175, 55, 0.5); }
         .status { font-size: 14px; color: #fff; margin-top: 10px; opacity: 0.8; }
@@ -17,7 +15,6 @@
         input[type="file"] { display: none; }
         .btn { background: linear-gradient(135deg, #b01b2e, #8a0f1e); color: white; padding: 10px 20px; border: 1px solid #D4AF37; border-radius: 30px; cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; transition: all 0.3s ease; box-shadow: 0 0 15px rgba(176, 27, 46, 0.4); }
         .btn:hover { background: linear-gradient(135deg, #d42e44, #b01b2e); box-shadow: 0 0 25px rgba(176, 27, 46, 0.7); transform: scale(1.05); }
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #D4AF37; font-size: 18px; z-index: 20; text-shadow: 0 0 20px #D4AF37; transition: opacity 0.5s; text-align: center; line-height: 1.5; }
     </style>
     
     <script type="importmap">
@@ -28,30 +25,20 @@
         }
     }
     </script>
-
     <script src="https://npm.elemecdn.com/gsap@3.12.2/dist/gsap.min.js"></script>
-    <script src="https://npm.elemecdn.com/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://npm.elemecdn.com/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://npm.elemecdn.com/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://npm.elemecdn.com/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
-    <div id="loading">
-        正在连接国内镜像源...<br>
-        <span style="font-size:12px; color:#aaa;">首次加载 AI 模型可能需要 10-20 秒，请稍候</span>
-    </div>
-
     <div id="ui-layer">
         <h1>Xmas Particle System</h1>
-        <div class="status">当前状态: <span id="state-text">系统启动中...</span></div>
+        <div class="status">当前状态: <span id="state-text">圣诞树形态 (Tree)</span></div>
         
         <div class="instruction">
-            <strong>手势控制指南:</strong><br>
-            ✊ <b>握拳:</b> 聚合 (圣诞树)<br>
-            🖐 <b>五指张开:</b> 散开 (漂浮)<br>
-            👋 <b>手掌移动:</b> 旋转视角 (散开时)<br>
-            👌 <b>捏合:</b> 抓取照片放大
+            <strong>鼠标交互模式:</strong><br>
+            🖱 <b>松开鼠标:</b> 聚合 (圣诞树)<br>
+            🖱 <b>按住左键:</b> 散开 (漂浮)<br>
+            👋 <b>按住拖拽:</b> 旋转视角<br>
+            👆 <b>双击屏幕:</b> 抓取随机照片
         </div>
 
         <div id="controls">
@@ -62,11 +49,9 @@
         </div>
     </div>
 
-    <video id="input-video"></video>
     <div id="canvas-container"></div>
 
     <script type="module">
-        // 通过 Import Map 引入 Three.js，无需改动路径
         import * as THREE from 'three';
         import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
         import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -246,77 +231,46 @@
             alert(`已加载 ${files.length} 张照片`);
         });
 
-        // --- MediaPipe 与 摄像头逻辑 ---
-        const videoElement = document.getElementById('input-video');
-        const loadingScreen = document.getElementById('loading');
-        let lastGestureTime = 0;
-
-        function onResults(results) {
-            loadingScreen.style.opacity = '0';
-            setTimeout(() => loadingScreen.style.display = 'none', 500);
-
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                detectGesture(results.multiHandLandmarks[0]);
-            }
-        }
-
-        // === 关键修改：指定 locateFile 使用国内镜像 ===
-        const hands = new Hands({locateFile: (file) => {
-            return `https://npm.elemecdn.com/@mediapipe/hands/${file}`;
-        }});
-
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
+        // --- 鼠标交互逻辑 (替代手势) ---
+        let isMouseDown = false;
+        
+        // 1. 按下鼠标 -> 散开
+        container.addEventListener('mousedown', () => {
+            isMouseDown = true;
+            transitionTo(STATES.SCATTER);
         });
-        hands.onResults(onResults);
 
-        const cameraUtils = new Camera(videoElement, {
-            onFrame: async () => { await hands.send({image: videoElement}); },
-            width: 640, height: 480
-        });
-        cameraUtils.start();
-
-        function detectGesture(landmarks) {
-            const now = Date.now();
-            if (now - lastGestureTime < 500) return;
-
-            const wrist = landmarks[0];
-            const thumbTip = landmarks[4];
-            const indexTip = landmarks[8];
-            
-            function dist(p1, p2) { return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2)); }
-            
-            const isIndexOpen = dist(indexTip, wrist) > 0.3;
-            const isMiddleOpen = dist(landmarks[12], wrist) > 0.3;
-            const isRingOpen = dist(landmarks[16], wrist) > 0.3;
-            const isPinkyOpen = dist(landmarks[20], wrist) > 0.3;
-            const openFingers = [isIndexOpen, isMiddleOpen, isRingOpen, isPinkyOpen].filter(Boolean).length;
-
-            if (openFingers === 0) {
+        // 2. 松开鼠标 -> 回到圣诞树
+        container.addEventListener('mouseup', () => {
+            isMouseDown = false;
+            if (currentState !== STATES.FOCUS) { // 如果不是正在看照片，就回去
                 transitionTo(STATES.TREE);
-                lastGestureTime = now;
-            } else if (openFingers >= 4) {
-                transitionTo(STATES.SCATTER);
-                if (currentState === STATES.SCATTER) {
-                    gsap.to(scene.rotation, { x: (wrist.y - 0.5), y: (wrist.x - 0.5), duration: 1 });
-                }
             }
-            if (dist(thumbTip, indexTip) < 0.05 && currentState !== STATES.TREE) {
-                const target = photoMeshes[Math.floor(Math.random() * photoMeshes.length)];
-                transitionTo(STATES.FOCUS, target);
-                lastGestureTime = now;
+        });
+
+        // 3. 移动鼠标 -> 旋转视角 (仅在按住时)
+        container.addEventListener('mousemove', (e) => {
+            if (currentState === STATES.SCATTER && isMouseDown) {
+                const rotX = (e.clientY / window.innerHeight - 0.5) * 2;
+                const rotY = (e.clientX / window.innerWidth - 0.5) * 2;
+                gsap.to(scene.rotation, { x: rotX * 0.5, y: rotY * 0.5, duration: 0.5 });
             }
-        }
+        });
+
+        // 4. 双击 -> 随机看照片
+        container.addEventListener('dblclick', () => {
+            const target = photoMeshes[Math.floor(Math.random() * photoMeshes.length)];
+            transitionTo(STATES.FOCUS, target);
+        });
 
         // --- 渲染循环 ---
         const clock = new THREE.Clock();
         function animate() {
             requestAnimationFrame(animate);
-            if (currentState === STATES.TREE) scene.rotation.y += 0.002;
-            else if (currentState === STATES.SCATTER) {
+            // 自动旋转
+            if (currentState === STATES.TREE) {
+                scene.rotation.y += 0.002;
+            } else if (currentState === STATES.SCATTER) {
                 particles.forEach((p, i) => { p.position.y += Math.sin(clock.getElapsedTime() + i) * 0.005; });
             }
             composer.render();
